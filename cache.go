@@ -7,7 +7,7 @@ import (
 
 // Cache is a synchronised map of items that auto-expire once stale
 type Cache[K comparable, V any] struct {
-	sync.RWMutex
+	mu    sync.RWMutex
 	ttl   time.Duration
 	items map[K]*Item[V]
 	onset func(K, V)
@@ -23,7 +23,8 @@ func NewCache[K comparable, V any](ttl time.Duration) *Cache[K, V] {
 }
 
 // NewCacheOn 创建指定生命周期的 Cache
-//   on: [onset, onget, ondel, ontouch]
+//
+//	on: [onset, onget, ondel, ontouch]
 func NewCacheOn[K comparable, V any](ttl time.Duration, on [4]func(K, V)) *Cache[K, V] {
 	cache := &Cache[K, V]{
 		ttl:   ttl,
@@ -45,7 +46,7 @@ func (c *Cache[K, V]) gc() (stop func()) {
 		for {
 			select {
 			case <-ticker.C:
-				c.Lock()
+				c.mu.Lock()
 				for key, item := range c.items {
 					if item.expired() {
 						if c.ondel != nil {
@@ -54,7 +55,7 @@ func (c *Cache[K, V]) gc() (stop func()) {
 						delete(c.items, key)
 					}
 				}
-				c.Unlock()
+				c.mu.Unlock()
 			case <-stopchan:
 				break loop
 			}
@@ -75,9 +76,9 @@ func (c *Cache[K, V]) Destroy() {
 
 // Get 通过 key 获取指定的元素
 func (c *Cache[K, V]) Get(key K) (v V) {
-	c.RLock()
+	c.mu.RLock()
 	item, ok := c.items[key]
-	c.RUnlock()
+	c.mu.RUnlock()
 	if ok && item.expired() {
 		c.Delete(key)
 		return
@@ -94,8 +95,8 @@ func (c *Cache[K, V]) Get(key K) (v V) {
 
 // Set 设置指定 key 的值
 func (c *Cache[K, V]) Set(key K, val V) {
-	c.Lock()
-	defer c.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	item := &Item[V]{
 		exp:   time.Now().Add(c.ttl),
 		value: val,
@@ -108,8 +109,8 @@ func (c *Cache[K, V]) Set(key K, val V) {
 
 // Delete 删除指定key
 func (c *Cache[K, V]) Delete(key K) {
-	c.Lock()
-	defer c.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.ondel != nil {
 		c.ondel(key, c.items[key].value)
 	}
@@ -118,8 +119,8 @@ func (c *Cache[K, V]) Delete(key K) {
 
 // Touch 为指定key添加一定生命周期
 func (c *Cache[K, V]) Touch(key K, ttl time.Duration) {
-	c.Lock()
-	defer c.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.items[key] != nil {
 		c.items[key].exp = c.items[key].exp.Add(ttl)
 		if c.ontch != nil {
