@@ -45,8 +45,13 @@ func (c *Cache[K, V]) gc() (stop func()) {
 	loop:
 		for {
 			select {
+			case <-stopchan:
+				break loop
 			case <-ticker.C:
 				c.mu.Lock()
+				if c.items == nil || c.stop == nil {
+					break loop
+				}
 				for key, item := range c.items {
 					if item.expired() {
 						if c.ondel != nil {
@@ -56,8 +61,6 @@ func (c *Cache[K, V]) gc() (stop func()) {
 					}
 				}
 				c.mu.Unlock()
-			case <-stopchan:
-				break loop
 			}
 		}
 	}()
@@ -88,6 +91,22 @@ func (c *Cache[K, V]) Get(key K) (v V) {
 	c.mu.RUnlock()
 	if ok && item.expired() {
 		c.Delete(key)
+		return
+	}
+	if item == nil {
+		return
+	}
+	item.exp = time.Now().Add(c.ttl) // reset the expired time
+	if c.onget != nil {
+		c.onget(key, item.value)
+	}
+	return item.value
+}
+
+// get without readlock & expired delete
+func (c *Cache[K, V]) get(key K) (v V) {
+	item, ok := c.items[key]
+	if ok && item.expired() {
 		return
 	}
 	if item == nil {
@@ -134,4 +153,16 @@ func (c *Cache[K, V]) Touch(key K, ttl time.Duration) {
 			c.ontch(key, c.items[key].value)
 		}
 	}
+}
+
+func (c *Cache[K, V]) Range(f func(K, V) error) error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	for k := range c.items {
+		err := f(k, c.get(k))
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
