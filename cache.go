@@ -70,6 +70,13 @@ func (c *Cache[K, V]) gc() (stop func()) {
 // Destroy 销毁 chahe, 不可再使用, 否则 panic
 func (c *Cache[K, V]) Destroy() {
 	c.stop()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.ondel != nil {
+		for k, v := range c.items {
+			c.ondel(k, v.value)
+		}
+	}
 	c.items = nil
 	c.stop = nil
 }
