@@ -137,8 +137,12 @@ func (c *Cache[K, V]) Set(key K, val V) {
 func (c *Cache[K, V]) Delete(key K) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	item, ok := c.items[key]
+	if !ok { // no such key
+		return
+	}
 	if c.ondel != nil {
-		c.ondel(key, c.items[key].value)
+		c.ondel(key, item.value)
 	}
 	delete(c.items, key)
 }
