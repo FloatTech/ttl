@@ -18,6 +18,28 @@ func TestGet(t *testing.T) {
 	assert.Equal(t, "world", data)
 }
 
+func TestGetOrSet(t *testing.T) {
+	cache := NewCache[string, string](time.Second)
+
+	data := cache.GetOrSet("hello", "earth")
+	assert.Equal(t, "earth", data)
+
+	cache.GetOrSet("hello", "world")
+	data = cache.Get("hello")
+	assert.Equal(t, "earth", data)
+}
+
+func TestGetAndDelete(t *testing.T) {
+	cache := NewCache[string, string](time.Second)
+
+	data := cache.GetOrSet("hello", "earth")
+	assert.Equal(t, "earth", data)
+
+	assert.Equal(t, "earth", cache.GetAndDelete("hello"))
+	data = cache.Get("hello")
+	assert.Equal(t, "", data)
+}
+
 func TestExpiration(t *testing.T) {
 	cache := NewCache[string, string](time.Second)
 

@@ -84,16 +84,10 @@ func (c *Cache[K, V]) Destroy() {
 	c.stop = nil
 }
 
-// Get 通过 key 获取指定的元素
-func (c *Cache[K, V]) Get(key K) (v V) {
-	c.mu.RLock()
-	item, ok := c.items[key]
-	c.mu.RUnlock()
-	if ok && item.expired() {
-		c.Delete(key)
-		return
-	}
-	if item == nil {
+// get 无锁通过 key 获取指定的元素
+func (c *Cache[K, V]) get(key K, item *Item[V]) (v V) {
+	if item.expired() {
+		c.delete(key, item)
 		return
 	}
 	item.exp = time.Now().Add(c.ttl) // reset the expired time
@@ -103,48 +97,81 @@ func (c *Cache[K, V]) Get(key K) (v V) {
 	return item.value
 }
 
-// get without readlock & expired delete
-func (c *Cache[K, V]) get(key K) (v V) {
-	item, ok := c.items[key]
-	if ok && item.expired() {
-		return
-	}
+// Get 通过 key 获取指定的元素
+func (c *Cache[K, V]) Get(key K) (v V) {
+	c.mu.RLock()
+	item := c.items[key]
+	c.mu.RUnlock()
 	if item == nil {
 		return
 	}
-	item.exp = time.Now().Add(c.ttl) // reset the expired time
-	if c.onget != nil {
-		c.onget(key, item.value)
+	return c.get(key, item)
+}
+
+// GetOrSet 获取 key 的值或在为空时设置 key 的值并返回该值
+func (c *Cache[K, V]) GetOrSet(key K, val V) (v V) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	item := c.items[key]
+	if item != nil {
+		return c.get(key, item)
 	}
-	return item.value
+	v = val
+	c.set(key, &Item[V]{
+		exp:   time.Now().Add(c.ttl),
+		value: val,
+	})
+	return
+}
+
+// set 无锁设置指定 key 的值
+func (c *Cache[K, V]) set(key K, item *Item[V]) {
+	c.items[key] = item
+	if c.onset != nil {
+		c.onset(key, item.value)
+	}
 }
 
 // Set 设置指定 key 的值
 func (c *Cache[K, V]) Set(key K, val V) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	item := &Item[V]{
 		exp:   time.Now().Add(c.ttl),
 		value: val,
 	}
-	c.items[key] = item
-	if c.onset != nil {
-		c.onset(key, val)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.set(key, item)
+}
+
+// delete 无锁删除 item
+func (c *Cache[K, V]) delete(key K, item *Item[V]) {
+	if c.ondel != nil {
+		c.ondel(key, item.value)
 	}
+	delete(c.items, key)
+}
+
+// Delete 获得值后删除指定key
+func (c *Cache[K, V]) GetAndDelete(key K) (v V) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	item := c.items[key]
+	if item == nil { // no such key
+		return
+	}
+	c.delete(key, item)
+	return item.value
 }
 
 // Delete 删除指定key
 func (c *Cache[K, V]) Delete(key K) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	item, ok := c.items[key]
-	if !ok { // no such key
+	item := c.items[key]
+	if item == nil { // no such key
 		return
 	}
-	if c.ondel != nil {
-		c.ondel(key, item.value)
-	}
-	delete(c.items, key)
+	c.delete(key, item)
 }
 
 // Touch 为指定key添加一定生命周期
@@ -159,11 +186,24 @@ func (c *Cache[K, V]) Touch(key K, ttl time.Duration) {
 	}
 }
 
+// get without readlock & expired delete
+func (c *Cache[K, V]) rangeget(key K) (v V) {
+	item := c.items[key]
+	if item == nil || item.expired() {
+		return
+	}
+	item.exp = time.Now().Add(c.ttl) // reset the expired time
+	if c.onget != nil {
+		c.onget(key, item.value)
+	}
+	return item.value
+}
+
 func (c *Cache[K, V]) Range(f func(K, V) error) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	for k := range c.items {
-		err := f(k, c.get(k))
+		err := f(k, c.rangeget(k))
 		if err != nil {
 			return err
 		}
