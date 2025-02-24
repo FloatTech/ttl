@@ -21,7 +21,7 @@ func TestGet(t *testing.T) {
 func TestGetOrSet(t *testing.T) {
 	cache := NewCache[string, string](time.Second)
 
-	data := cache.GetOrSet("hello", "earth")
+	data, _ := cache.GetOrSet("hello", "earth")
 	assert.Equal(t, "earth", data)
 
 	cache.GetOrSet("hello", "world")
@@ -32,10 +32,11 @@ func TestGetOrSet(t *testing.T) {
 func TestGetAndDelete(t *testing.T) {
 	cache := NewCache[string, string](time.Second)
 
-	data := cache.GetOrSet("hello", "earth")
+	data, _ := cache.GetOrSet("hello", "earth")
 	assert.Equal(t, "earth", data)
 
-	assert.Equal(t, "earth", cache.GetAndDelete("hello"))
+	data, _ = cache.GetAndDelete("hello")
+	assert.Equal(t, "earth", data)
 	data = cache.Get("hello")
 	assert.Equal(t, "", data)
 }

@@ -109,12 +109,12 @@ func (c *Cache[K, V]) Get(key K) (v V) {
 }
 
 // GetOrSet 获取 key 的值或在为空时设置 key 的值并返回该值
-func (c *Cache[K, V]) GetOrSet(key K, val V) (v V) {
+func (c *Cache[K, V]) GetOrSet(key K, val V) (v V, got bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	item := c.items[key]
 	if item != nil {
-		return c.get(key, item)
+		return c.get(key, item), true
 	}
 	v = val
 	c.set(key, &Item[V]{
@@ -152,7 +152,7 @@ func (c *Cache[K, V]) delete(key K, item *Item[V]) {
 }
 
 // Delete 获得值后删除指定key
-func (c *Cache[K, V]) GetAndDelete(key K) (v V) {
+func (c *Cache[K, V]) GetAndDelete(key K) (v V, deleted bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	item := c.items[key]
@@ -160,7 +160,7 @@ func (c *Cache[K, V]) GetAndDelete(key K) (v V) {
 		return
 	}
 	c.delete(key, item)
-	return item.value
+	return item.value, true
 }
 
 // Delete 删除指定key
